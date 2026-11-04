@@ -13,18 +13,20 @@ import java.util.*;
 
 public class BleService extends Service {
  public static final String UPDATE="za.co.epservice.jamguard.UPDATE";
- public static final String SERVICE_UUID="c63c0001-92b0-4d7a-8ca8-13f57a6d0101";
- public static final String DATA_UUID="c63c0002-92b0-4d7a-8ca8-13f57a6d0101";
+ public static final String SERVICE_UUID="6c8e0001-5cd0-4f6b-9d5d-b31c8803a001";
+ public static final String DATA_UUID="6c8e0002-5cd0-4f6b-9d5d-b31c8803a001";
  private static final String CH_MON="jamguard_monitor",CH_ALERT="jamguard_alert";
  private BluetoothGatt gatt; private BluetoothLeScanner scanner; private MediaPlayer player;
  private final Handler handler=new Handler(Looper.getMainLooper()); private boolean scanning=false, wanted=false;
- private BluetoothDevice lastDevice; private int reconnectAttempt=0;
+ private BluetoothDevice lastDevice; private int reconnectAttempt=0; private boolean detectorAlarm=false;
  private final UUID serviceUuid=UUID.fromString(SERVICE_UUID),dataUuid=UUID.fromString(DATA_UUID);
  private final UUID cccd=UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
  private final ScanCallback scanCallback=new ScanCallback(){
   @Override public void onScanResult(int callbackType,ScanResult result){
    BluetoothDevice device=result.getDevice();String name=result.getScanRecord()!=null?result.getScanRecord().getDeviceName():null;
-   if(name!=null && name.startsWith("JamGuard")){stopScan();lastDevice=device;connect(device);}
+   boolean nameMatch=name!=null && name.startsWith("JamGuard");
+   boolean uuidMatch=result.getScanRecord()!=null && result.getScanRecord().getServiceUuids()!=null && result.getScanRecord().getServiceUuids().contains(new android.os.ParcelUuid(serviceUuid));
+   if(nameMatch || uuidMatch){stopScan();lastDevice=device;connect(device);}
   }
   @Override public void onScanFailed(int errorCode){send("status","Scan failed: "+errorCode);scheduleReconnect();}
  };
@@ -33,7 +35,7 @@ public class BleService extends Service {
   if(intent!=null){String action=intent.getAction();
    if("CONNECT".equals(action)){wanted=true;reconnectAttempt=0;startScan();}
    if("SILENCE".equals(action))silence();
-   if("DISCONNECT".equals(action)){wanted=false;stopScan();if(gatt!=null){gatt.disconnect();gatt.close();gatt=null;}silence();send("status","Disconnected");}
+   if("DISCONNECT".equals(action)){wanted=false;detectorAlarm=false;stopScan();if(gatt!=null){gatt.disconnect();gatt.close();gatt=null;}silence();send("status","Disconnected");}
   }return START_STICKY;
  }
  private void createChannels(){NotificationManager nm=getSystemService(NotificationManager.class);
@@ -58,7 +60,7 @@ public class BleService extends Service {
  }
  private final BluetoothGattCallback callback=new BluetoothGattCallback(){
   @Override public void onConnectionStateChange(BluetoothGatt g,int status,int state){
-   if(state==BluetoothProfile.STATE_CONNECTED){reconnectAttempt=0;send("status","Connected — discovering services");try{g.discoverServices();}catch(SecurityException ignored){}}
+   if(state==BluetoothProfile.STATE_CONNECTED){detectorAlarm=false;reconnectAttempt=0;send("status","Connected — discovering services");try{g.discoverServices();}catch(SecurityException ignored){}}
    else if(state==BluetoothProfile.STATE_DISCONNECTED){send("status","Disconnected");g.close();if(gatt==g)gatt=null;scheduleReconnect();}
   }
   @Override public void onServicesDiscovered(BluetoothGatt g,int status){
@@ -74,12 +76,37 @@ public class BleService extends Service {
   @Override public void onCharacteristicChanged(BluetoothGatt g,BluetoothGattCharacteristic c,byte[] value){parse(new String(value,StandardCharsets.UTF_8));}
   @Override public void onCharacteristicChanged(BluetoothGatt g,BluetoothGattCharacteristic c){parse(new String(c.getValue(),StandardCharsets.UTF_8));}
  };
- // Protocol: RSSI,-94 or ALARM,-48 or CLEAR,-91. One complete message per BLE notification.
- private void parse(String msg){String[] fields=msg.trim().split(",");if(fields.length<2)return;
-  try{int rssi=Integer.parseInt(fields[1].trim());send("rssi",String.valueOf(rssi));
-   if(fields[0].equals("ALARM")){saveAlarm(rssi);soundAlarm(rssi);send("alarm","Suspected RF interference: "+rssi+" dBm");}
-   else if(fields[0].equals("CLEAR"))send("state","Normal");
-  }catch(NumberFormatException ignored){}
+ // ESP32 BLE: R,-94.5,0 (normal), R,-94.5,1 (alert), ALERT,-94.5
+ // Also accepts the older RSSI/ALARM/CLEAR format.
+ private void parse(String msg){
+  String[] fields=msg.trim().split(",");
+  if(fields.length<2)return;
+  String kind=fields[0].trim();
+  if(kind.equals("ERR")){
+   send("status","Detector error: "+fields[1].trim());
+   return;
+  }
+  float reading;
+  try{reading=Float.parseFloat(fields[1].trim());}
+  catch(NumberFormatException ex){return;}
+  int rssi=Math.round(reading);
+  send("rssi",String.format(Locale.US,"%.1f",reading));
+  if(kind.equals("RSSI"))return;
+  boolean active=kind.equals("ALERT") || kind.equals("ALARM");
+  if(kind.equals("R") && fields.length>=3){
+   active=fields[2].trim().equals("1");
+  }
+  if(kind.equals("CLEAR"))active=false;
+  if(active && !detectorAlarm){
+   detectorAlarm=true;
+   saveAlarm(rssi);
+   soundAlarm(rssi);
+   send("alarm","Suspected RF interference: "+rssi+" dBm");
+  }else if(!active && detectorAlarm){
+   detectorAlarm=false;
+   silence();
+   send("state","Normal");
+  }
  }
  private void saveAlarm(int rssi){android.content.SharedPreferences prefs=getSharedPreferences("events",MODE_PRIVATE);
   String old=prefs.getString("history","");String entry=new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss",Locale.getDefault()).format(new Date())+" | RF alarm | "+rssi+" dBm";
