@@ -4,52 +4,392 @@ import android.Manifest;
 import android.app.*;
 import android.content.*;
 import android.content.pm.PackageManager;
-import android.graphics.Color;
-import android.graphics.Typeface;
-import android.graphics.drawable.GradientDrawable;
+import android.net.Uri;
 import android.os.*;
-import android.view.*;
+import android.webkit.*;
 import android.widget.*;
+import java.io.*;
+import java.nio.charset.StandardCharsets;
+import java.util.*;
+import org.json.*;
 
 public class MainActivity extends Activity {
- private final int GOLD=Color.rgb(245,191,52),BLACK=Color.rgb(9,9,9),PANEL=Color.rgb(25,25,25);
- private TextView status,rssi,alarm,history;private BroadcastReceiver receiver;
- private GradientDrawable bg(int color,int stroke){GradientDrawable d=new GradientDrawable();d.setColor(color);d.setCornerRadius(22);d.setStroke(2,stroke);return d;}
- private TextView label(String text,int size,int color){TextView v=new TextView(this);v.setText(text);v.setTextColor(color);v.setTextSize(size);v.setPadding(8,10,8,10);return v;}
- private void add(LinearLayout parent,View child){parent.addView(child,new LinearLayout.LayoutParams(-1,-2));}
- private void action(String cmd){Intent i=new Intent(this,BleService.class);i.setAction(cmd);if(Build.VERSION.SDK_INT>=26)startForegroundService(i);else startService(i);}
- @Override public void onCreate(Bundle state){super.onCreate(state);getWindow().setStatusBarColor(BLACK);getWindow().setNavigationBarColor(BLACK);
-  ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.setBackgroundColor(BLACK);
-  LinearLayout page=new LinearLayout(this);page.setOrientation(1);page.setPadding(24,24,24,24);scroll.addView(page);setContentView(scroll);
-  ImageView logo=new ImageView(this);logo.setImageResource(R.drawable.eps_logo);logo.setAdjustViewBounds(true);
-  logo.setScaleType(ImageView.ScaleType.FIT_CENTER);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,190);page.addView(logo,lp);
-  TextView title=label("JAMGUARD",30,GOLD);title.setGravity(Gravity.CENTER);title.setTypeface(null,Typeface.BOLD);add(page,title);
-  TextView brand=label("BY EPS GLOBAL TRACK",13,Color.LTGRAY);brand.setGravity(Gravity.CENTER);add(page,brand);
-  LinearLayout panel=new LinearLayout(this);panel.setOrientation(1);panel.setPadding(18,18,18,18);panel.setBackground(bg(PANEL,GOLD));
-  LinearLayout.LayoutParams pp=new LinearLayout.LayoutParams(-1,-2);pp.topMargin=24;page.addView(panel,pp);
-  add(panel,label("BLUETOOTH STATUS",13,GOLD));status=label("Not connected",17,Color.WHITE);add(panel,status);
-  add(panel,label("LIVE RF SIGNAL — 433.92 MHz",13,GOLD));rssi=label("-- dBm",34,Color.WHITE);rssi.setTypeface(null,Typeface.BOLD);add(panel,rssi);
-  add(panel,label("Threshold: -110 dBm  |  Delay: 1 second",12,Color.LTGRAY));
-  Button connect=new Button(this);connect.setText("CONNECT TO JAMGUARD");connect.setTextColor(Color.BLACK);connect.setBackgroundTintList(android.content.res.ColorStateList.valueOf(GOLD));add(page,connect);connect.setOnClickListener(v->{if(checkPermissions())action("CONNECT");});
-  Button disconnect=new Button(this);disconnect.setText("DISCONNECT");add(page,disconnect);disconnect.setOnClickListener(v->action("DISCONNECT"));
-  alarm=label("SYSTEM READY — WAITING FOR DETECTOR",17,GOLD);alarm.setBackground(bg(PANEL,GOLD));add(page,alarm);
-  Button silence=new Button(this);silence.setText("SILENCE PHONE SIREN");silence.setBackgroundTintList(android.content.res.ColorStateList.valueOf(Color.rgb(180,40,40)));add(page,silence);silence.setOnClickListener(v->{action("SILENCE");alarm.setText("Siren silenced — alarm saved");});
-  add(page,label("ALARM HISTORY",18,GOLD));history=label("No recorded alarms",13,Color.LTGRAY);add(page,history);refreshHistory();
-  receiver=new BroadcastReceiver(){@Override public void onReceive(Context c,Intent i){String key=i.getStringExtra("key"),value=i.getStringExtra("value");if(key==null||value==null)return;
-   if(key.equals("status"))status.setText(value);if(key.equals("rssi"))rssi.setText(value+" dBm");
-   if(key.equals("alarm")){alarm.setText("⚠ JAMMING WARNING\n"+value);alarm.setTextColor(Color.RED);refreshHistory();}
-   if(key.equals("state")){alarm.setText("SYSTEM NORMAL");alarm.setTextColor(GOLD);}
-  }};
-  IntentFilter filter=new IntentFilter(BleService.UPDATE);if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,filter,Context.RECEIVER_NOT_EXPORTED);else registerReceiver(receiver,filter);
-  checkPermissions();
- }
- private void refreshHistory(){String h=getSharedPreferences("events",MODE_PRIVATE).getString("history","");history.setText(h.isEmpty()?"No recorded alarms":h);}
- private boolean checkPermissions(){java.util.ArrayList<String> missing=new java.util.ArrayList<>();
-  if(Build.VERSION.SDK_INT>=31){if(checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN)!=PackageManager.PERMISSION_GRANTED)missing.add(Manifest.permission.BLUETOOTH_SCAN);
-   if(checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT)!=PackageManager.PERMISSION_GRANTED)missing.add(Manifest.permission.BLUETOOTH_CONNECT);
-  }else if(checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)!=PackageManager.PERMISSION_GRANTED)missing.add(Manifest.permission.ACCESS_FINE_LOCATION);
-  if(Build.VERSION.SDK_INT>=33&&checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)missing.add(Manifest.permission.POST_NOTIFICATIONS);
-  if(!missing.isEmpty()){requestPermissions(missing.toArray(new String[0]),100);return false;}return true;
- }
- @Override public void onDestroy(){if(receiver!=null)unregisterReceiver(receiver);super.onDestroy();}
+  private WebView web;
+  private Store db;
+  private android.content.SharedPreferences p;
+  private String pendingAction;
+  private boolean destroyed;
+
+  @Override
+  public void onCreate(Bundle s) {
+    super.onCreate(s);
+    getWindow().setStatusBarColor(0xff0a1017);
+    getWindow().setNavigationBarColor(0xff0a1017);
+    db = new Store(this);
+    p = getSharedPreferences("settings", 0);
+    web = new WebView(this);
+    web.setBackgroundColor(0xff0a1017);
+    web.getSettings().setJavaScriptEnabled(true);
+    web.getSettings().setDomStorageEnabled(false);
+    web.getSettings().setAllowFileAccess(false);
+    web.getSettings().setAllowContentAccess(false);
+    web.getSettings().setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+    web.addJavascriptInterface(new Bridge(), "Native");
+    web.setWebChromeClient(new WebChromeClient());
+    web.setWebViewClient(
+        new WebViewClient() {
+          @Override
+          public boolean shouldOverrideUrlLoading(WebView w, WebResourceRequest r) {
+            return true;
+          }
+
+          @Override
+          public WebResourceResponse shouldInterceptRequest(WebView w, WebResourceRequest r) {
+            String u = r.getUrl().toString();
+            if (!u.startsWith("file:///android_asset/"))
+              return new WebResourceResponse(
+                  "text/plain", "UTF-8", new ByteArrayInputStream(new byte[0]));
+            return null;
+          }
+        });
+    setContentView(web);
+    web.loadUrl("file:///android_asset/index.html");
+  }
+
+  private void message(String t) {
+    runOnUiThread(
+        () -> {
+          if (!destroyed) Toast.makeText(this, t, Toast.LENGTH_LONG).show();
+        });
+  }
+
+  private boolean bluetoothPermissions() {
+    List<String> a = new ArrayList<>();
+    if (Build.VERSION.SDK_INT >= 31) {
+      for (String x :
+          new String[] {Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN})
+        if (checkSelfPermission(x) != PackageManager.PERMISSION_GRANTED) a.add(x);
+    } else if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)
+        != PackageManager.PERMISSION_GRANTED) a.add(Manifest.permission.ACCESS_FINE_LOCATION);
+    if (Build.VERSION.SDK_INT >= 33
+        && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+            != PackageManager.PERMISSION_GRANTED) a.add(Manifest.permission.POST_NOTIFICATIONS);
+    if (!a.isEmpty()) {
+      requestPermissions(a.toArray(new String[0]), 10);
+      return false;
+    }
+    return true;
+  }
+
+  private void service(String action, String json) {
+    runOnUiThread(
+        () -> {
+          if (destroyed) return;
+          if (!bluetoothPermissions()) {
+            pendingAction = action;
+            return;
+          }
+          Intent i = new Intent(this, BleService.class).setAction(action);
+          if (json != null) i.putExtra("json", json);
+          try {
+            startForegroundService(i);
+          } catch (Exception e) {
+            message("Open the app and grant Bluetooth permissions to start monitoring");
+          }
+        });
+  }
+
+  @Override
+  public void onRequestPermissionsResult(int request, String[] perms, int[] results) {
+    super.onRequestPermissionsResult(request, perms, results);
+    if (request == 10) {
+      boolean granted = true;
+      for (int k = 0; k < perms.length; k++)
+        if (!perms[k].equals(Manifest.permission.POST_NOTIFICATIONS)
+            && results[k] != PackageManager.PERMISSION_GRANTED) granted = false;
+      if (granted && pendingAction != null) {
+        String a = pendingAction;
+        pendingAction = null;
+        service(a, null);
+      } else message("Bluetooth permissions are needed to connect");
+    }
+    if (request == 11) service("LOCATION", null);
+  }
+
+  public final class Bridge {
+    @JavascriptInterface
+    public String snapshot() {
+      try {
+        JSONObject j = new JSONObject(BleService.live);
+        if (j.optLong("last_seen") == 0)
+          j.put("last_seen", p.getLong("seen_" + p.getString("address", ""), 0));
+        JSONObject settings = new JSONObject();
+        for (String key :
+            new String[] {"chat", "device_name", "address", "mode", "site_lat", "site_lon"})
+          settings.put(key, p.getString(key, key.equals("mode") ? "vehicle" : ""));
+        for (String key : new String[] {"telegram", "gps", "auto", "siren", "notify_clear"})
+          settings.put(key, p.getBoolean(key, key.equals("siren") || key.equals("notify_clear")));
+        settings.put("token_set", Vault.present(MainActivity.this));
+        settings.put("devices", new JSONArray(p.getString("devices", "[]")));
+        j.put("settings", settings)
+            .put("events", db.events())
+            .put("queue", db.count("queued") + db.count("retry"))
+            .put("failed", db.count("failed"))
+            .put("sent", db.count("sent"));
+        return j.toString();
+      } catch (Exception e) {
+        return "{}";
+      }
+    }
+
+    @JavascriptInterface
+    public void action(String a) {
+      if (Arrays.asList(
+              "CONNECT",
+              "SCAN",
+              "DISCONNECT",
+              "STOP",
+              "SILENCE",
+              "TEST_SIREN",
+              "TEST_TELEGRAM",
+              "RETRY",
+              "CONFIG")
+          .contains(a)) service(a, null);
+    }
+
+    @JavascriptInterface
+    public String save(String raw) {
+      try {
+        JSONObject j = new JSONObject(raw);
+        String chat = j.optString("chat").trim();
+        if (!chat.isEmpty() && !chat.matches("-?[0-9]{1,20}|@[A-Za-z0-9_]{5,32}"))
+          return "Enter a numeric Telegram chat ID or @channelname";
+        String token = j.optString("token").trim();
+        if (!token.isEmpty() && !token.matches("[0-9]{5,20}:[A-Za-z0-9_-]{20,150}"))
+          return "Bot token format is invalid";
+        if (j.optBoolean("telegram")
+            && (chat.isEmpty() || token.isEmpty() && !Vault.present(MainActivity.this)))
+          return "Add the bot token and chat ID first";
+        String lat = j.optString("site_lat").trim(), lon = j.optString("site_lon").trim();
+        if (!lat.isEmpty() || !lon.isEmpty()) {
+          double a = Double.parseDouble(lat), o = Double.parseDouble(lon);
+          if (!Double.isFinite(a) || !Double.isFinite(o) || Math.abs(a) > 90 || Math.abs(o) > 180)
+            return "Invalid fixed-site coordinates";
+        }
+        if (!token.isEmpty()) Vault.save(MainActivity.this, token);
+        SharedPreferences.Editor e = p.edit();
+        for (String key : new String[] {"chat", "device_name", "mode", "site_lat", "site_lon"})
+          e.putString(key, j.optString(key));
+        for (String key : new String[] {"telegram", "gps", "auto", "siren", "notify_clear"})
+          e.putBoolean(key, j.optBoolean(key));
+        JSONArray profiles = new JSONArray(p.getString("devices", "[]"));
+        for (int n = 0; n < profiles.length(); n++)
+          if (profiles.getJSONObject(n).optString("address").equals(p.getString("address", "")))
+            profiles.getJSONObject(n).put("name", j.optString("device_name", "JamGuard"));
+        e.putString("devices", profiles.toString());
+        if (!e.commit()) return "Could not persist phone settings";
+        runOnUiThread(
+            () -> {
+              if (j.optBoolean("gps")
+                  && checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION)
+                      != PackageManager.PERMISSION_GRANTED)
+                requestPermissions(
+                    new String[] {
+                      Manifest.permission.ACCESS_FINE_LOCATION,
+                      Manifest.permission.ACCESS_COARSE_LOCATION
+                    },
+                    11);
+              else if (!BleService.live.equals("{}")) service("LOCATION", null);
+            });
+        return "Saved phone settings";
+      } catch (Exception e) {
+        return "Could not save. Check coordinates and secret storage.";
+      }
+    }
+
+    @JavascriptInterface
+    public void select(String raw) {
+      try {
+        JSONObject d = new JSONObject(raw);
+        String address = d.getString("address");
+        if (!address.matches("(?i)([0-9a-f]{2}:){5}[0-9a-f]{2}")) return;
+        if (new JSONObject(BleService.live).optBoolean("connected")
+            && !address.equals(p.getString("address", ""))) {
+          message("Disconnect the current detector before selecting another.");
+          return;
+        }
+        JSONArray old = new JSONArray(p.getString("devices", "[]")), next = new JSONArray();
+        for (int i = 0; i < old.length(); i++)
+          if (!old.getJSONObject(i).optString("address").equals(address))
+            next.put(old.getJSONObject(i));
+        if (next.length() >= 30) {
+          message("Forget a saved detector before adding another (limit 30).");
+          return;
+        }
+        next.put(d);
+        p.edit()
+            .putString("devices", next.toString())
+            .putString("address", address)
+            .putString("device_name", d.optString("name", "JamGuard"))
+            .commit();
+        message("Detector selected. Tap Connect to monitor it.");
+      } catch (Exception ignored) {
+      }
+    }
+
+    @JavascriptInterface
+    public void forget(String address) {
+      try {
+        JSONArray old = new JSONArray(p.getString("devices", "[]")), next = new JSONArray();
+        for (int i = 0; i < old.length(); i++)
+          if (!old.getJSONObject(i).optString("address").equals(address))
+            next.put(old.getJSONObject(i));
+        p.edit().putString("devices", next.toString()).commit();
+        if (p.getString("address", "").equals(address)) {
+          p.edit().remove("address").commit();
+          service("DISCONNECT", null);
+        }
+      } catch (Exception ignored) {
+      }
+    }
+
+    @JavascriptInterface
+    public void command(String raw) {
+      try {
+        JSONObject j = new JSONObject(raw);
+        String cmd = j.optString("cmd");
+        if (Arrays.asList("get", "status", "set", "test_telegram").contains(cmd))
+          service("DEVICE_COMMAND", j.toString());
+      } catch (Exception ignored) {
+      }
+    }
+
+    @JavascriptInterface
+    public void acknowledge(String id, String note) {
+      db.acknowledge(id, note);
+    }
+
+    @JavascriptInterface
+    public void exportCsv() {
+      runOnUiThread(
+          () -> {
+            Intent i =
+                new Intent(Intent.ACTION_CREATE_DOCUMENT)
+                    .setType("text/csv")
+                    .addCategory(Intent.CATEGORY_OPENABLE)
+                    .putExtra(
+                        Intent.EXTRA_TITLE,
+                        "JamGuard_Incidents_" + java.time.LocalDate.now() + ".csv");
+            startActivityForResult(i, 100);
+          });
+    }
+
+    @JavascriptInterface
+    public void printReport() {
+      runOnUiThread(
+          () -> {
+            android.print.PrintManager m =
+                (android.print.PrintManager) getSystemService(PRINT_SERVICE);
+            m.print(
+                "JamGuard Incident Report",
+                web.createPrintDocumentAdapter("JamGuard Incident Report"),
+                null);
+          });
+    }
+
+    @JavascriptInterface
+    public void map(double lat, double lon) {
+      if (Double.isFinite(lat)
+          && Double.isFinite(lon)
+          && Math.abs(lat) <= 90
+          && Math.abs(lon) <= 180)
+        runOnUiThread(
+            () -> {
+              try {
+                startActivity(
+                    new Intent(
+                        Intent.ACTION_VIEW,
+                        Uri.parse("geo:" + lat + "," + lon + "?q=" + lat + "," + lon)));
+              } catch (Exception e) {
+                message("Install a maps application to view coordinates");
+              }
+            });
+    }
+
+    @JavascriptInterface
+    public void telegram() {
+      runOnUiThread(
+          () -> {
+            String chat = p.getString("chat", "");
+            if (chat.startsWith("@"))
+              try {
+                startActivity(
+                    new Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/" + chat.substring(1))));
+              } catch (Exception ignored) {
+              }
+            else message("Open Telegram and select your authorised Control Room chat");
+          });
+    }
+
+    @JavascriptInterface
+    public void privacy() {
+      runOnUiThread(
+          () ->
+              new AlertDialog.Builder(MainActivity.this)
+                  .setTitle("Local data and Telegram")
+                  .setMessage(
+                      "Incidents and saved devices stay in this app. Enabling Telegram sends"
+                          + " incident details and available coordinates to your configured chat."
+                          + " Anyone in that chat can see them. The bot token is encrypted with"
+                          + " Android Keystore. No server account, analytics or advertising."
+                          + " Uninstall clears local data. Export reports before uninstalling."
+                          + " Telegram messages remain in Telegram. GPS collection runs only during"
+                          + " an enabled monitoring session. Device health depends on firmware"
+                          + " telemetry.")
+                  .setPositiveButton("Close", null)
+                  .show());
+    }
+  }
+
+  @Override
+  protected void onActivityResult(int request, int result, Intent data) {
+    super.onActivityResult(request, result, data);
+    if (request == 100 && result == RESULT_OK && data != null && data.getData() != null) {
+      Uri uri = data.getData();
+      new Thread(
+              () -> {
+                try (OutputStream out = getContentResolver().openOutputStream(uri)) {
+                  if (out == null) throw new IOException();
+                  out.write(db.csv().getBytes(StandardCharsets.UTF_8));
+                  message("CSV report saved");
+                } catch (Exception e) {
+                  message("Could not save CSV report");
+                }
+              })
+          .start();
+    }
+  }
+
+  @Override
+  protected void onResume() {
+    super.onResume();
+    if (p != null
+        && p.getBoolean("auto", false)
+        && !p.getString("address", "").isEmpty()
+        && BleService.live.equals("{}")) service("CONNECT", null);
+  }
+
+  @Override
+  public void onBackPressed() {
+    web.evaluateJavascript("window.goBack && window.goBack()", null);
+  }
+
+  @Override
+  protected void onDestroy() {
+    destroyed = true;
+    web.removeJavascriptInterface("Native");
+    web.destroy();
+    db.close();
+    super.onDestroy();
+  }
 }

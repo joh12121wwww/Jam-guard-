@@ -1,0 +1,98 @@
+/workspace/scratch/7d85cb3b5abd/JamGuard_Mobile/app/src/main/java/za/co/epservice/jamguard/MainActivity.java:234: Warning: Consider using apply() instead; commit writes its data to persistent storage immediately, whereas apply will handle it in the background [ApplySharedPref]
+            .commit();
+             ~~~~~~~~
+/workspace/scratch/7d85cb3b5abd/JamGuard_Mobile/app/src/main/java/za/co/epservice/jamguard/MainActivity.java:247: Warning: Consider using apply() instead; commit writes its data to persistent storage immediately, whereas apply will handle it in the background [ApplySharedPref]
+        p.edit().putString("devices", next.toString()).commit();
+                                                       ~~~~~~~~
+/workspace/scratch/7d85cb3b5abd/JamGuard_Mobile/app/src/main/java/za/co/epservice/jamguard/MainActivity.java:249: Warning: Consider using apply() instead; commit writes its data to persistent storage immediately, whereas apply will handle it in the background [ApplySharedPref]
+          p.edit().remove("address").commit();
+                                     ~~~~~~~~
+/workspace/scratch/7d85cb3b5abd/JamGuard_Mobile/app/src/main/java/za/co/epservice/jamguard/Vault.java:30: Warning: Consider using apply() instead; commit writes its data to persistent storage immediately, whereas apply will handle it in the background [ApplySharedPref]
+      c.getSharedPreferences("vault", 0).edit().remove("token").commit();
+                                                                ~~~~~~~~
+
+   Explanation for issues of type "ApplySharedPref":
+   Consider using apply() instead of commit on shared preferences. Whereas
+   commit blocks and writes its data to persistent storage immediately, apply
+   will handle it in the background.
+
+/workspace/scratch/7d85cb3b5abd/JamGuard_Mobile/app/src/main/AndroidManifest.xml:6: Warning: Attribute usesPermissionFlags is only used in API level 31 and higher (current min is 26) [UnusedAttribute]
+ <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation"/>
+                                                                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+   Explanation for issues of type "UnusedAttribute":
+   This check finds attributes set in XML files that were introduced in a
+   version newer than the oldest version targeted by your application (with
+   the minSdkVersion attribute).
+
+   This is not an error; the application will simply ignore the attribute.
+   However, if the attribute is important to the appearance or functionality
+   of your application, you should consider finding an alternative way to
+   achieve the same result with only available attributes, and then you can
+   optionally create a copy of the layout in a layout-vNN folder which will be
+   used on API NN or higher where you can take advantage of the newer
+   attribute.
+
+   Note: This check does not only apply to attributes. For example, some tags
+   can be unused too, such as the new <tag> element in layouts introduced in
+   API 21.
+
+/workspace/scratch/7d85cb3b5abd/JamGuard_Mobile/app/src/main/java/za/co/epservice/jamguard/MainActivity.java:32: Warning: Using setJavaScriptEnabled can introduce XSS vulnerabilities into your application, review carefully [SetJavaScriptEnabled]
+    web.getSettings().setJavaScriptEnabled(true);
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+   Explanation for issues of type "SetJavaScriptEnabled":
+   Your code should not invoke setJavaScriptEnabled if you are not sure that
+   your app really requires JavaScript support.
+
+   https://goo.gle/SetJavaScriptEnabled
+   https://developer.android.com/training/articles/security-tips
+
+/workspace/scratch/7d85cb3b5abd/JamGuard_Mobile/app/src/main/AndroidManifest.xml:16: Warning: The attribute android:dataExtractionRules only applies for Android 12 and higher; since minSdkVersion is API 26 you should also set android:fullBackupContent [DataExtractionRules]
+ <application android:label="JamGuard" android:icon="@mipmap/ic_launcher" android:allowBackup="false" android:dataExtractionRules="@xml/data_extraction_rules" android:theme="@android:style/Theme.Material.NoActionBar" android:usesCleartextTraffic="false">
+                                                                                                                                   ~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+   Explanation for issues of type "DataExtractionRules":
+   Before Android 12, the attributes android:allowBackup and
+   android:fullBackupContent were used to configure all forms of backup,
+   including cloud backups, device-to-device transfers and adb backup.
+
+   In Android 12 and higher, these attributes have been deprecated and will
+   only apply to cloud backups. You should instead use the attribute
+   android:dataExtractionRules, specifying an @xml resource that configures
+   which files to back up, for cloud backups and for device-to-device
+   transfers, separately. If your minSdkVersion supports older versions,
+   you'll still want to specify an android:fullBackupContent resource if the
+   default behavior is not right for your app.
+
+   https://developer.android.com/about/versions/12/backup-restore#xml-changes
+   https://goo.gle/DataExtractionRules
+
+/workspace/scratch/7d85cb3b5abd/JamGuard_Mobile/app/src/main/res/mipmap-anydpi-v26: Warning: This folder configuration (v26) is unnecessary; minSdkVersion is 26. Merge all the resources in this folder into mipmap-anydpi. [ObsoleteSdkInt]
+
+   Explanation for issues of type "ObsoleteSdkInt":
+   This check flags version checks that are not necessary, because the
+   minSdkVersion (or surrounding known API level) is already at least as high
+   as the version checked for.
+
+   Similarly, it also looks for resources in -vNN folders, such as values-v14
+   where the version qualifier is less than or equal to the minSdkVersion,
+   where the contents should be merged into the best folder.
+
+/workspace/scratch/7d85cb3b5abd/JamGuard_Mobile/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml:1: Warning: The application adaptive icon is missing a monochrome tag [MonochromeLauncherIcon]
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android"><background android:drawable="@android:color/black"/><foreground android:drawable="@drawable/launcher_foreground"/></adaptive-icon>
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+   Explanation for issues of type "MonochromeLauncherIcon":
+   If android:roundIcon and android:icon are both in your manifest, you must
+   either remove the reference to android:roundIcon if it is not needed; or,
+   supply the monochrome icon in the drawable defined by the android:roundIcon
+   and android:icon attribute.
+
+   For example, if android:roundIcon and android:icon are both in the
+   manifest, a launcher might choose to use android:roundIcon over
+   android:icon to display the adaptive app icon. Therefore, your themed
+   application iconwill not show if your monochrome attribute is not also
+   specified in android:roundIcon.
+
+0 errors, 9 warnings
