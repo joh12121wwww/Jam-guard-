@@ -91,7 +91,7 @@ public class BleService extends Service {
         5,
         TimeUnit.SECONDS);
     IntentFilter f = new IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED);
-    if (Build.VERSION.SDK_INT >= 33) registerReceiver(bond, f, Context.RECEIVER_NOT_EXPORTED);
+    if (Build.VERSION.SDK_INT >= 33) registerReceiver(bond, f, Context.RECEIVER_EXPORTED);
     else registerReceiver(bond, f);
     h.post(tick);
   }
@@ -594,9 +594,11 @@ public class BleService extends Service {
   private final BroadcastReceiver bond =
       new BroadcastReceiver() {
         public void onReceive(Context c, Intent i) {
+          if (!BluetoothDevice.ACTION_BOND_STATE_CHANGED.equals(i.getAction())) return;
           BluetoothDevice d = i.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
           if (chosen == null || d == null || !d.getAddress().equals(chosen.getAddress())) return;
-          if (i.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, 0) == BluetoothDevice.BOND_BONDED)
+          if (i.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, 0) == BluetoothDevice.BOND_BONDED
+              && d.getBondState() == BluetoothDevice.BOND_BONDED)
             h.post(
                 () -> {
                   if (gatt != null && configTx != null) subscribe(configTx, true);
