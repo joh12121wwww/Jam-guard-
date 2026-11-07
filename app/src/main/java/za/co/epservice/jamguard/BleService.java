@@ -598,6 +598,9 @@ public class BleService extends Service {
           BluetoothDevice d = i.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
           if (chosen == null || d == null || !d.getAddress().equals(chosen.getAddress())) return;
           if (i.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, 0) == BluetoothDevice.BOND_BONDED
+                && (Build.VERSION.SDK_INT < 31
+                    || checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT)
+                        == PackageManager.PERMISSION_GRANTED)
               && d.getBondState() == BluetoothDevice.BOND_BONDED)
             h.post(
                 () -> {
